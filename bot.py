@@ -1,15 +1,16 @@
 # bot.py
-import discord, asyncio, os, random, json, openai
+import discord, asyncio, os, random, json
 from discord.ext import commands, tasks
 from discord import app_commands
 from discord.utils import get
 from discord import FFmpegPCMAudio
 import yt_dlp as youtube_dl
+from openai import OpenAI
 
 # ===== 讀取環境變數 =====
 TOKEN = os.getenv("TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
-OPENAI_KEY = os.getenv("OPENAI_KEY")
+client_ai = OpenAI(api_key=os.getenv("OPENAI_KEY"))
 openai.api_key = OPENAI_KEY
 
 # ===== 資料庫 =====
@@ -187,16 +188,19 @@ async def on_message(message):
         return
 
     ai_ch = db["settings"].get("ai")
+
     if ai_ch and message.channel.id == ai_ch:
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":message.content}]
+            response = client_ai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": message.content}]
             )
-            await message.reply(response.choices[0].message.content)
+
+            reply = response.choices[0].message.content
+            await message.reply(reply)
+
         except Exception as e:
             print("AI Error:", e)
-
 
 # ===== 音樂系統 =====
 ytdl_opts = {'format':'bestaudio'}
