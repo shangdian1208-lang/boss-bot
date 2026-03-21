@@ -3,3 +3,4 @@ python-dotenv
 flask
 yt-dlp
 openai
+PyNaCl
