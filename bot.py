@@ -36,6 +36,39 @@ def save_db(data):
 db = load_db()
 
 # -----------------------------
+# 輔助：簡單 JSON 存取
+# -----------------------------
+DB_FILE = "bot_db.json"
+
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_db(db):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(db, f, indent=4, ensure_ascii=False)
+
+# -----------------------------
+# 自訂 Client
+# -----------------------------
+class MyBot(discord.Client):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        # 在 Bot 啟動前註冊背景任務
+        asyncio.create_task(youtube_rss_loop(self))
+        await self.tree.sync()  # 同步斜線指令
+
+intents = discord.Intents.default()
+intents.message_content = True  # 如果需要讀取訊息內容
+client = MyBot(intents=intents)
+
+
+# -----------------------------
 # AI 回覆
 # -----------------------------
 HF_MODEL = "gpt-neo-2.7B"
@@ -398,7 +431,7 @@ async def leaderboard(interaction: discord.Interaction, type: str):
     await interaction.response.send_message(embed=embed)
 
 # -----------------------------
-# 設置 YouTube 通知頻道（管理員可用）
+# 設置 YouTube 發片通知頻道（管理員可用）
 # -----------------------------
 @client.tree.command(name="set_yt_channel", description="設置 YouTube 發片通知頻道")
 @app_commands.describe(channel="要發送通知的頻道", yt_id="YouTube 頻道ID")
@@ -414,9 +447,9 @@ async def set_yt_channel(interaction: discord.Interaction, channel: discord.Text
     await interaction.response.send_message(f"✅ 已設置 YouTube 發片通知頻道: {channel.mention}\n頻道ID: `{yt_id}`")
 
 # -----------------------------
-# 循環檢查 RSS 新影片
+# YouTube RSS 背景任務
 # -----------------------------
-async def youtube_rss_loop():
+async def youtube_rss_loop(client):
     await client.wait_until_ready()
     while not client.is_closed():
         db = load_db()
@@ -431,12 +464,14 @@ async def youtube_rss_loop():
                     if info.get("last_video") != latest.link:
                         info["last_video"] = latest.link
                         save_db(db)
-                        embed = discord.Embed(title="📢 新影片上線！", description=latest.title, color=discord.Color.red())
+                        embed = discord.Embed(
+                            title="📢 新影片上線！",
+                            description=latest.title,
+                            color=discord.Color.red()
+                        )
                         embed.add_field(name="連結", value=latest.link, inline=False)
                         await ch.send(embed=embed)
         await asyncio.sleep(300)  # 每5分鐘檢查一次
-
-client.loop.create_task(youtube_rss_loop())
 
 # -----------------------------
 # /ping 指令
