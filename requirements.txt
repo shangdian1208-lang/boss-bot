@@ -3,3 +3,4 @@ PyNaCl
 yt-dlp
 requests
 openai
+feedparser
