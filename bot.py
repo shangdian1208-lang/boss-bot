@@ -1,348 +1,435 @@
-# bot.py
-import discord, asyncio, os, random, json
+import discord, os, json, random, asyncio, yt_dlp
 from discord.ext import commands, tasks
 from discord import app_commands
-from discord.utils import get
-from discord import FFmpegPCMAudio
-import yt_dlp as youtube_dl
-from openai import OpenAI
-import requests
 
+# -----------------------------
+# 環境變數
+# -----------------------------
+TOKEN = os.getenv("DISCORD_TOKEN")
 HF_API = os.getenv("HF_API_KEY")
-HF_MODEL = "gpt-neo-2.7B"  # 你也可以換成其他模型
+OWNER_ID = int(os.getenv("OWNER_ID", "1442017307332182168"))
+
+# -----------------------------
+# Bot 初始化
+# -----------------------------
+intents = discord.Intents.all()
+client = commands.Bot(command_prefix="/", intents=intents)
+client.remove_command("help")
+
+# -----------------------------
+# 資料庫
+# -----------------------------
+if not os.path.exists("db.json"):
+    with open("db.json","w") as f:
+        json.dump({
+            "settings":{}, "exp":{}, "money":{}, "ai_history":{}
+        }, f, indent=4)
+
+def load_db():
+    with open("db.json","r") as f:
+        return json.load(f)
+
+def save_db(data):
+    with open("db.json","w") as f:
+        json.dump(data, f, indent=4)
+
+db = load_db()
+
+# -----------------------------
+# AI 回覆
+# -----------------------------
+HF_MODEL = "gpt-neo-2.7B"
 
 async def ai_reply(message):
     try:
-        payload = {
-            "inputs": message.content,
-            "options": {"use_cache": False, "wait_for_model": True}
-        }
+        db = load_db()
+        history = db.get("ai_history", {})
+        context = history.get(str(message.channel.id), [])
+        context.append(f"User: {message.content}")
+        prompt = "\n".join(context[-3:]) + "\nAI:"
+        import requests
         headers = {"Authorization": f"Bearer {HF_API}"}
-
-        res = requests.post(
-            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
+        payload = {"inputs": prompt, "options":{"use_cache":False,"wait_for_model":True}}
+        res = requests.post(f"https://api-inference.huggingface.co/models/{HF_MODEL}", headers=headers, json=payload, timeout=30)
         data = res.json()
-
-        # Hugging Face 回傳有時候是 list
-        if isinstance(data, list):
-            text = data[0].get("generated_text", "")
-        else:
-            text = data.get("generated_text", "")
-
-        if not text:
-            text = "🤖 AI 無法生成回答"
-
-        await message.reply(text)
-
+        reply = data[0].get("generated_text","🤖 AI 無法回覆") if isinstance(data,list) else data.get("generated_text","🤖 AI 無法回覆")
+        context.append(f"AI: {reply}")
+        db["ai_history"][str(message.channel.id)] = context[-6:]
+        save_db(db)
+        await message.reply(reply)
     except Exception as e:
         print("HF AI Error:", e)
-        await message.reply("⚠️ AI暫時不可用")
+        await message.reply("⚠️ AI 暫時不可用")
 
-# ===== 讀取環境變數 =====
-TOKEN = os.getenv("TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))
-client_ai = OpenAI(api_key=os.getenv("OPENAI_KEY"))
-
-# ===== 資料庫 =====
-DB_FILE = "db.json"
-def read_db():
-    if not os.path.exists(DB_FILE):
-        return {"users": {}, "settings": {}, "logs": {}}
-    with open(DB_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-def write_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-db = read_db()
-
-# ===== Bot 初始化 =====
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="/", intents=intents)
-
-# ===== 同步 Slash 指令 =====
-class MyBot(discord.Client):
-    def __init__(self):
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
-
-client = MyBot()
-
-# ===== Bot 上線 =====
-@client.event
-async def on_ready():
-    print(f"🤖 Bot 已上線: {client.user}")
-    await client.tree.sync()
-
-# ===== 進出訊息 =====
+# -----------------------------
+# 歡迎/離開訊息
+# -----------------------------
 @client.event
 async def on_member_join(member):
-    ch_id = db["settings"].get("welcome")
-    if ch_id:
-        ch = client.get_channel(ch_id)
-        if ch: await ch.send(f"👋 歡迎 {member.mention}！")
+    db = load_db()
+    chan_id = db.get("settings", {}).get(str(member.guild.id), {}).get("welcome")
+    if chan_id:
+        ch = member.guild.get_channel(chan_id)
+        if ch:
+            await ch.send(f"🎉 歡迎 {member.mention} 加入 {member.guild.name}!")
 
 @client.event
 async def on_member_remove(member):
-    ch_id = db["settings"].get("leave")
-    if ch_id:
-        ch = client.get_channel(ch_id)
-        if ch: await ch.send(f"😢 {member} 離開了伺服器！")
+    db = load_db()
+    chan_id = db.get("settings", {}).get(str(member.guild.id), {}).get("leave")
+    if chan_id:
+        ch = member.guild.get_channel(chan_id)
+        if ch:
+            await ch.send(f"👋 {member.name} 離開了 {member.guild.name}.")
 
-# ===== 指令 =====
-@client.tree.command(name="ping", description="測試指令")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 Pong!")
+# -----------------------------
+# 等級系統
+# -----------------------------
+@client.event
+async def on_message(msg):
+    if msg.author.bot:
+        return
+    db = load_db()
+    uid = str(msg.author.id)
+    db["exp"][uid] = db.get("exp", {}).get(uid, 0) + random.randint(1,5)
+    db["money"][uid] = db.get("money", {}).get(uid, 100)  # 初始金幣 100
+    save_db(db)
+    # AI 回覆
+    if db.get("settings", {}).get(str(msg.guild.id), {}).get("ai") == msg.channel.id:
+        await ai_reply(msg)
+    await client.process_commands(msg)
 
-@client.tree.command(name="help", description="指令列表")
-async def help_cmd(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "📜 指令: /daily /profile /rps /gacha /broadcast /play /stop /join /leave /set-ai-channel"
-    )
+@client.tree.command(name="profile", description="查看個人經驗值和金幣")
+async def profile(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    db = load_db()
+    exp = db.get("exp", {}).get(uid, 0)
+    money = db.get("money", {}).get(uid, 100)
+    await interaction.response.send_message(f"📊 {interaction.user.mention}\n經驗值: {exp}\n金幣: {money}", ephemeral=True)
+    # -----------------------------
+# 身分組領取按鈕
+# -----------------------------
+class RoleButton(discord.ui.View):
+    def __init__(self, role: discord.Role):
+        super().__init__(timeout=None)
+        self.role = role
 
-# ===== 設定指令 (需管理員) =====
-async def admin_set(interaction, key, ch: discord.TextChannel):
-    db["settings"][key] = ch.id
-    write_db(db)
-    await interaction.response.send_message(f"✅ 設定 {key} 頻道完成: {ch.mention}")
+    @discord.ui.button(label="領取身分組", style=discord.ButtonStyle.primary)
+    async def assign_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        if self.role in member.roles:
+            await member.remove_roles(self.role)
+            await interaction.response.send_message(f"✅ 已移除 {self.role.name}", ephemeral=True)
+        else:
+            await member.add_roles(self.role)
+            await interaction.response.send_message(f"✅ 已獲得 {self.role.name}", ephemeral=True)
 
-@client.tree.command(name="set-welcome-channel", description="設定歡迎頻道")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(ch="頻道")
-async def set_welcome(interaction: discord.Interaction, ch: discord.TextChannel):
-    await admin_set(interaction, "welcome", ch)
+@client.tree.command(name="rolemsg", description="發送身分組按鈕訊息")
+@app_commands.describe(role="要領取的身分組")
+async def rolemsg(interaction: discord.Interaction, role: discord.Role):
+    if interaction.user.guild_permissions.manage_roles:
+        view = RoleButton(role)
+        await interaction.response.send_message(f"按下按鈕領取 {role.name}", view=view)
+    else:
+        await interaction.response.send_message("❌ 需要管理員權限", ephemeral=True)
 
-@client.tree.command(name="set-leave-channel", description="設定離開頻道")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(ch="頻道")
-async def set_leave(interaction: discord.Interaction, ch: discord.TextChannel):
-    await admin_set(interaction, "leave", ch)
+# -----------------------------
+# 設置全域公告頻道（管理員可用）
+# -----------------------------
+@client.tree.command(name="set_announce", description="設置全域公告頻道")
+@app_commands.describe(channel="要發送公告的頻道")
+async def set_announce(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.user.guild_permissions.administrator:  # 管理員可用
+        await interaction.response.send_message("❌ 需要管理員權限", ephemeral=True)
+        return
+    db = load_db()
+    if "settings" not in db:
+        db["settings"] = {}
+    if str(interaction.guild.id) not in db["settings"]:
+        db["settings"][str(interaction.guild.id)] = {}
+    db["settings"][str(interaction.guild.id)]["announce"] = channel.id
+    save_db(db)
+    await interaction.response.send_message(f"✅ 公告頻道已設置為 {channel.mention}")
 
-@client.tree.command(name="set-ai-channel", description="設定AI聊天頻道")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(ch="頻道")
-async def set_ai(interaction: discord.Interaction, ch: discord.TextChannel):
-    await admin_set(interaction, "ai", ch)
-
-@client.tree.command(name="set-logs-channel", description="設定日誌頻道")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(ch="頻道")
-async def set_logs(interaction: discord.Interaction, ch: discord.TextChannel):
-    await admin_set(interaction, "logs", ch)
-
-@client.tree.command(name="broadcast", description="全域公告（Embed版）")
+# -----------------------------
+# 發送全域公告（僅擁有者可用）
+# -----------------------------
+@client.tree.command(name="broadcast", description="全域公告 (Embed)")
 @app_commands.describe(msg="公告內容")
 async def broadcast(interaction: discord.Interaction, msg: str):
+    OWNER_ID = 1442017307332182168  # <- 你的 Discord ID，只有你能用
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("❌ 只有擁有者可以使用", ephemeral=True)
+        await interaction.response.send_message("❌ 只有擁有者才能發送公告", ephemeral=True)
         return
-
     await interaction.response.send_message("🚀 發送中...", ephemeral=True)
-
-    success = 0
-    failed = 0
-    fail_list = []
-
+    db = load_db()
+    success, failed, fail_list = 0, 0, []
     for guild in client.guilds:
         try:
-            guild_settings = db["settings"].get(str(guild.id), {})
-            ch_id = guild_settings.get("announce")
-
+            ch_id = db["settings"].get(str(guild.id), {}).get("announce")
             if ch_id:
                 ch = client.get_channel(ch_id)
             else:
                 ch = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
-
             if not ch:
                 failed += 1
                 fail_list.append(guild.name)
                 continue
-
-            embed = discord.Embed(
-                title="📢 全域公告",
-                description=msg,
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="📢 全域公告", description=msg, color=discord.Color.blue())
             embed.set_footer(text=f"來自 {interaction.user}")
-
             await ch.send(embed=embed)
             success += 1
-
         except Exception as e:
             print(f"公告失敗: {guild.name}", e)
             failed += 1
             fail_list.append(guild.name)
-
-    # ===== 回報結果 =====
-    result_embed = discord.Embed(
-        title="📊 公告發送結果",
-        color=discord.Color.green()
-    )
+    result_embed = discord.Embed(title="📊 公告發送結果", color=discord.Color.green())
     result_embed.add_field(name="✅ 成功", value=str(success), inline=True)
     result_embed.add_field(name="❌ 失敗", value=str(failed), inline=True)
-
     if fail_list:
-        result_embed.add_field(
-            name="⚠️ 失敗伺服器",
-            value="\n".join(fail_list[:10]),  # 最多顯示10個避免爆字數
-            inline=False
-        )
-
+        result_embed.add_field(name="⚠️ 失敗伺服器", value="\n".join(fail_list[:10]), inline=False)
     await interaction.followup.send(embed=result_embed)
-    
-@client.tree.command(name="set-announcement-channel", description="設定全域公告頻道")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(ch="公告頻道")
-async def set_announcement(interaction: discord.Interaction, ch: discord.TextChannel):
-    db["settings"][str(interaction.guild.id)] = db["settings"].get(str(interaction.guild.id), {})
-    db["settings"][str(interaction.guild.id)]["announce"] = ch.id
-    write_db(db)
-
-    await interaction.response.send_message(f"📢 公告頻道已設為 {ch.mention}")
-
-# ===== 經濟系統 =====
-@client.tree.command(name="daily", description="每日金幣")
-async def daily(interaction: discord.Interaction):
-    uid = str(interaction.user.id)
-    if uid not in db["users"]:
-        db["users"][uid] = {"money":100, "last":0}
-    import time
-    now = int(time.time())
-    if now - db["users"][uid]["last"] < 86400:
-        await interaction.response.send_message("今天已經領過了")
-        return
-    db["users"][uid]["money"] += 100
-    db["users"][uid]["last"] = now
-    write_db(db)
-    await interaction.response.send_message("💰 領取 +100 金幣")
-
-@client.tree.command(name="profile", description="查看個人資料")
-async def profile(interaction: discord.Interaction):
-    uid = str(interaction.user.id)
-    user = db["users"].get(uid, {"money":100})
-    await interaction.response.send_message(f"💰 {interaction.user.mention} 目前金幣: {user['money']}")
-
-# ===== 遊戲系統 =====
-@client.tree.command(name="rps", description="剪刀石頭布")
-@app_commands.describe(choice="你的選擇")
-@app_commands.choices(choice=[
-    app_commands.Choice(name="石頭", value="rock"),
-    app_commands.Choice(name="剪刀", value="scissors"),
-    app_commands.Choice(name="布", value="paper")
-])
+# -----------------------------
+# 小遊戲
+# -----------------------------
+@client.tree.command(name="rps", description="剪刀石頭布，一次30金幣")
+@app_commands.describe(choice="剪刀 / 石頭 / 布")
 async def rps(interaction: discord.Interaction, choice: str):
+    choice = choice.strip()
     uid = str(interaction.user.id)
-    if uid not in db["users"]: db["users"][uid] = {"money":100,"last":0}
-    cost = 30
-    if db["users"][uid]["money"] < cost:
-        await interaction.response.send_message("💸 金幣不足")
+    db = load_db()
+    user_money = db.get("money", {}).get(uid, 100)
+    if user_money < 30:
+        await interaction.response.send_message("💸 金幣不足", ephemeral=True)
         return
-    db["users"][uid]["money"] -= cost
-    bot_choice = random.choice(["rock","paper","scissors"])
-    result = "平手"
-    if (choice=="rock" and bot_choice=="scissors") or (choice=="paper" and bot_choice=="rock") or (choice=="scissors" and bot_choice=="paper"):
-        db["users"][uid]["money"] += 50
-        result = "你贏了 +50"
-    elif choice != bot_choice:
-        db["users"][uid]["money"] -= 20
-        result = "你輸了 -20"
-    write_db(db)
-    await interaction.response.send_message(f"你: {choice} Bot: {bot_choice}\n{result}")
+    options = ["剪刀","石頭","布"]
+    bot_choice = random.choice(options)
+    outcome = ""
+    if choice == bot_choice:
+        outcome = "平手，你贏得 20 金幣"
+        db["money"][uid] += 20 - 30
+    elif (choice=="剪刀" and bot_choice=="布") or (choice=="石頭" and bot_choice=="剪刀") or (choice=="布" and bot_choice=="石頭"):
+        outcome = f"🎉 你贏了！獲得 50 金幣 (扣 30 投注)"
+        db["money"][uid] += 50 - 30
+    else:
+        outcome = f"😢 你輸了，損失 20 金幣 (扣 30 投注)"
+        db["money"][uid] -= 30 + 20
+    save_db(db)
+    await interaction.response.send_message(f"🤖 我出 {bot_choice}\n{outcome}")
 
-@client.tree.command(name="gacha", description="扭蛋")
+@client.tree.command(name="gacha", description="扭蛋，一次30金幣，隨機 ±100")
 async def gacha(interaction: discord.Interaction):
     uid = str(interaction.user.id)
-    if uid not in db["users"]: db["users"][uid] = {"money":100,"last":0}
-    cost = 30
-    if db["users"][uid]["money"] < cost:
-        await interaction.response.send_message("💸 金幣不足")
+    db = load_db()
+    user_money = db.get("money", {}).get(uid, 100)
+    if user_money < 30:
+        await interaction.response.send_message("💸 金幣不足", ephemeral=True)
         return
-    db["users"][uid]["money"] -= cost
-    n = random.randint(-100,100)
-    db["users"][uid]["money"] += n
-    write_db(db)
-    await interaction.response.send_message(f"🎰 你扭出了 {n} 金幣")
+    reward = random.randint(-100,100)
+    db["money"][uid] += reward - 30
+    save_db(db)
+    await interaction.response.send_message(f"🎰 你抽到 {reward} 金幣 (扣 30 投注)")
 
-# ===== AI聊天 =====
-@client.event
-async def on_message(message):
-    if message.author.bot:
+# -----------------------------
+# 商店購買指令
+# -----------------------------
+SHOP_ITEMS = {
+    "pro_pass": 10000,
+    "double_gold": 5000
+}
+
+@client.tree.command(name="buy", description="購買商店物品")
+@app_commands.describe(item="購買的物品名稱")
+async def buy(interaction: discord.Interaction, item: str):
+    item = item.lower()
+    if item not in SHOP_ITEMS:
+        await interaction.response.send_message("❌ 商店沒有這個物品", ephemeral=True)
         return
+    uid = str(interaction.user.id)
+    db = load_db()
+    money = db.get("money", {}).get(uid, 100)
+    price = SHOP_ITEMS[item]
+    if money < price:
+        await interaction.response.send_message(f"💸 金幣不足，需要 {price}", ephemeral=True)
+        return
+    db["money"][uid] -= price
+    save_db(db)
+    await interaction.response.send_message(f"✅ 成功購買 {item}，扣除 {price} 金幣")
+    
+# -----------------------------
+# 音樂播放
+# -----------------------------
+music_queues = {}
 
-    if db["settings"].get("ai") == msg.channel.id:
-    await ai_reply(msg)
-
-    if ai_ch and message.channel.id == ai_ch:
-        try:
-            response = client_ai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": message.content}]
-            )
-
-            reply = response.choices[0].message.content
-            await message.reply(reply)
-
-        except Exception as e:
-            print("AI Error:", e)
-
-# ===== 音樂系統 =====
-ytdl_opts = {'format':'bestaudio'}
-ffmpeg_opts = {'before_options':'-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options':'-vn'}
-voice_clients = {}
-
-@client.tree.command(name="join", description="加入語音頻道")
+@client.tree.command(name="join", description="讓 Bot 加入語音頻道")
 async def join(interaction: discord.Interaction):
-    if interaction.user.voice and interaction.user.voice.channel:
-        channel = interaction.user.voice.channel
-        vc = await channel.connect()
-        voice_clients[interaction.guild_id] = vc
-        await interaction.response.send_message(f"✅ 已加入 {channel.name}")
-    else:
-        await interaction.response.send_message("❌ 你不在語音頻道")
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("❌ 你不在語音頻道", ephemeral=True)
+        return
+    channel = interaction.user.voice.channel
+    try:
+        await channel.connect()
+        await interaction.response.send_message(f"🎵 已加入 {channel.name}")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ 加入語音頻道失敗: {e}")
 
-@client.tree.command(name="leave", description="離開語音頻道")
+@client.tree.command(name="leave", description="讓 Bot 離開語音頻道")
 async def leave(interaction: discord.Interaction):
-    vc = voice_clients.get(interaction.guild_id)
-    if vc:
-        await vc.disconnect()
-        voice_clients.pop(interaction.guild_id)
-        await interaction.response.send_message("✅ 已離開語音頻道")
+    if interaction.guild.voice_client:
+        await interaction.guild.voice_client.disconnect()
+        await interaction.response.send_message("👋 已離開語音頻道")
     else:
-        await interaction.response.send_message("❌ Bot 不在語音頻道")
+        await interaction.response.send_message("❌ 我不在語音頻道", ephemeral=True)
 
 @client.tree.command(name="play", description="播放 YouTube 音樂")
-@app_commands.describe(url="YouTube 影片連結")
+@app_commands.describe(url="YouTube 影片網址")
 async def play(interaction: discord.Interaction, url: str):
-    vc = voice_clients.get(interaction.guild_id)
+    vc = interaction.guild.voice_client
     if not vc:
-        await interaction.response.send_message("❌ Bot 不在語音頻道")
+        await interaction.response.send_message("❌ 我不在語音頻道，先使用 /join", ephemeral=True)
         return
-    with youtube_dl.YoutubeDL(ytdl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        url2 = info['url']
-    vc.play(FFmpegPCMAudio(url2, **ffmpeg_opts))
-    await interaction.response.send_message(f"🎵 播放 {info['title']}")
-
-@client.tree.command(name="stop", description="停止播放")
-async def stop(interaction: discord.Interaction):
-    vc = voice_clients.get(interaction.guild_id)
-    if vc and vc.is_playing():
+    YDL_OPTIONS = {'format': 'bestaudio','noplaylist':'True'}
+    FFMPEG_OPTIONS = {'before_options':'-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options':'-vn'}
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(url, download=False)
+            url2 = info['url']
         vc.stop()
-        await interaction.response.send_message("⏹ 停止播放")
-    else:
-        await interaction.response.send_message("❌ 沒有播放中")
+        vc.play(discord.FFmpegPCMAudio(executable="ffmpeg", source=url2, **FFMPEG_OPTIONS))
+        await interaction.response.send_message(f"🎶 開始播放: {info['title']}")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ 播放失敗: {e}")
 
-# ===== 防炸 / 防刷 =====
+# -----------------------------
+# 日誌系統
+# -----------------------------
+@client.event
+async def on_command_completion(ctx):
+    db = load_db()
+    log_channel_id = db.get("settings", {}).get(str(ctx.guild.id), {}).get("log")
+    if log_channel_id:
+        ch = ctx.guild.get_channel(log_channel_id)
+        if ch:
+            await ch.send(f"📝 {ctx.author} 使用了指令 {ctx.command}")
+
+@client.tree.command(name="set_log", description="設置日誌頻道")
+@app_commands.describe(channel="日誌頻道")
+async def set_log(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.user.guild_permissions.manage_guild:
+        db = load_db()
+        if "settings" not in db:
+            db["settings"] = {}
+        if str(interaction.guild.id) not in db["settings"]:
+            db["settings"][str(interaction.guild.id)] = {}
+        db["settings"][str(interaction.guild.id)]["log"] = channel.id
+        save_db(db)
+        await interaction.response.send_message(f"✅ 日誌頻道已設置為 {channel.mention}")
+    else:
+        await interaction.response.send_message("❌ 需要管理員權限", ephemeral=True)
+
+# -----------------------------
+# 基本防炸功能
+# -----------------------------
+@client.event
+async def on_message_delete(message):
+    if message.author.bot: return
+    # 可以擴展到日誌
+    db = load_db()
+    log_channel_id = db.get("settings", {}).get(str(message.guild.id), {}).get("log")
+    if log_channel_id:
+        ch = message.guild.get_channel(log_channel_id)
+        if ch:
+            await ch.send(f"🗑️ 刪除訊息: {message.author} - {message.content[:100]}")
+
 @client.event
 async def on_message_edit(before, after):
-    if after.author.bot: return
-    if "@everyone" in after.content:
-        await after.delete()
+    if before.author.bot: return
+    db = load_db()
+    log_channel_id = db.get("settings", {}).get(str(before.guild.id), {}).get("log")
+    if log_channel_id:
+        ch = before.guild.get_channel(log_channel_id)
+        if ch:
+            await ch.send(f"✏️ 編輯訊息: {before.author}\n從: {before.content[:100]}\n改為: {after.content[:100]}")
 
-# ===== 啟動 Bot =====
+# -----------------------------
+# /daily 每日固定金幣
+# -----------------------------
+@client.tree.command(name="daily", description="每日領取固定金幣")
+async def daily(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    db = load_db()
+    from datetime import datetime
+    last_daily = db.get("settings", {}).get("daily_times", {}).get(uid)
+    now = datetime.utcnow()
+    if last_daily:
+        last_time = datetime.fromisoformat(last_daily)
+        if (now - last_time).total_seconds() < 86400:
+            await interaction.response.send_message("⏳ 每日只能領取一次金幣", ephemeral=True)
+            return
+    db["money"][uid] = db.get("money", {}).get(uid, 100) + 100  # 每日 +100 金幣
+    if "settings" not in db:
+        db["settings"] = {}
+    if "daily_times" not in db["settings"]:
+        db["settings"]["daily_times"] = {}
+    db["settings"]["daily_times"][uid] = now.isoformat()
+    save_db(db)
+    await interaction.response.send_message("💰 你已領取每日 100 金幣!")
+
+# -----------------------------
+# 排行榜系統
+# -----------------------------
+@client.tree.command(name="leaderboard", description="查看排行榜")
+@app_commands.describe(type="排行榜類型: exp / money")
+async def leaderboard(interaction: discord.Interaction, type: str):
+    type = type.lower()
+    db = load_db()
+    if type not in ["exp", "money"]:
+        await interaction.response.send_message("❌ 類型只能是 exp 或 money", ephemeral=True)
+        return
+    data = db.get(type, {})
+    top = sorted(data.items(), key=lambda x: x[1], reverse=True)[:10]
+    desc = ""
+    for i, (uid, value) in enumerate(top, start=1):
+        member = interaction.guild.get_member(int(uid))
+        name = member.name if member else f"ID:{uid}"
+        desc += f"#{i} {name} - {value}\n"
+    embed = discord.Embed(title=f"🏆 {type.upper()} 排行榜", description=desc or "無資料", color=discord.Color.gold())
+    await interaction.response.send_message(embed=embed)
+
+# -----------------------------
+# /ping 指令
+# -----------------------------
+@client.tree.command(name="ping", description="測試延遲（管理員權限）")
+async def ping(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ 需要管理員權限", ephemeral=True)
+        return
+    latency = round(client.latency * 1000)
+    await interaction.response.send_message(f"🏓 延遲: {latency}ms")
+
+# -----------------------------
+# /help 指令
+# -----------------------------
+@client.tree.command(name="help", description="列出所有指令說明")
+async def help_command(interaction: discord.Interaction):
+    embed = discord.Embed(title="📖 指令清單", color=discord.Color.blue())
+    embed.add_field(name="/profile", value="查看個人經驗值和金幣", inline=False)
+    embed.add_field(name="/daily", value="每日領取固定金幣", inline=False)
+    embed.add_field(name="/leaderboard type: exp/money", value="查看排行榜", inline=False)
+    embed.add_field(name="/rps choice", value="剪刀石頭布遊戲", inline=False)
+    embed.add_field(name="/gacha", value="扭蛋隨機金幣", inline=False)
+    embed.add_field(name="/buy item", value="購買商店物品", inline=False)
+    embed.add_field(name="/rolemsg role", value="發送身分組按鈕訊息", inline=False)
+    embed.add_field(name="/set_announce channel", value="設置全域公告頻道", inline=False)
+    embed.add_field(name="/broadcast msg", value="發送全域公告", inline=False)
+    embed.add_field(name="/join", value="加入語音頻道", inline=False)
+    embed.add_field(name="/leave", value="離開語音頻道", inline=False)
+    embed.add_field(name="/play url", value="播放 YouTube 音樂", inline=False)
+    embed.add_field(name="/set_log channel", value="設置日誌頻道", inline=False)
+    embed.add_field(name="/ping", value="測試延遲（管理員）", inline=False)
+    await interaction.response.send_message(embed=embed)
+    
+# -----------------------------
+# 啟動 Bot
+# -----------------------------
 client.run(TOKEN)
