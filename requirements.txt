@@ -1,6 +1,5 @@
-discord.py==2.4.1
-python-dotenv
-flask
-yt-dlp
-openai
+discord.py>=2.3.2,<2.8.0
 PyNaCl
+yt-dlp
+requests
+openai
