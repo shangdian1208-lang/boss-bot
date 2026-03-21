@@ -1,7 +1,7 @@
-import discord, os, json, random, asyncio, yt_dlp
+import discord, os, json, random, asyncio, yt_dlp, feedparser
 from discord.ext import commands, tasks
 from discord import app_commands
-import feedparser
+feedparser
 
 # -----------------------------
 # 環境變數
