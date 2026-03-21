@@ -99,14 +99,18 @@ async def set_ai(interaction: discord.Interaction, ch: discord.TextChannel):
 async def set_logs(interaction: discord.Interaction, ch: discord.TextChannel):
     await admin_set(interaction, "logs", ch)
 
-@client.tree.command(name="broadcast", description="全域公告")
+@client.tree.command(name="broadcast", description="全域公告（Embed版）")
 @app_commands.describe(msg="公告內容")
 async def broadcast(interaction: discord.Interaction, msg: str):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ 只有擁有者可以使用", ephemeral=True)
         return
 
-    count = 0
+    await interaction.response.send_message("🚀 發送中...", ephemeral=True)
+
+    success = 0
+    failed = 0
+    fail_list = []
 
     for guild in client.guilds:
         try:
@@ -116,17 +120,45 @@ async def broadcast(interaction: discord.Interaction, msg: str):
             if ch_id:
                 ch = client.get_channel(ch_id)
             else:
-                # 沒設定就找第一個文字頻道
                 ch = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
 
-            if ch:
-                await ch.send(f"📢 全域公告\n{msg}")
-                count += 1
+            if not ch:
+                failed += 1
+                fail_list.append(guild.name)
+                continue
+
+            embed = discord.Embed(
+                title="📢 全域公告",
+                description=msg,
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f"來自 {interaction.user}")
+
+            await ch.send(embed=embed)
+            success += 1
 
         except Exception as e:
             print(f"公告失敗: {guild.name}", e)
+            failed += 1
+            fail_list.append(guild.name)
 
-    await interaction.response.send_message(f"✅ 發送成功 {count} 個伺服器")
+    # ===== 回報結果 =====
+    result_embed = discord.Embed(
+        title="📊 公告發送結果",
+        color=discord.Color.green()
+    )
+    result_embed.add_field(name="✅ 成功", value=str(success), inline=True)
+    result_embed.add_field(name="❌ 失敗", value=str(failed), inline=True)
+
+    if fail_list:
+        result_embed.add_field(
+            name="⚠️ 失敗伺服器",
+            value="\n".join(fail_list[:10]),  # 最多顯示10個避免爆字數
+            inline=False
+        )
+
+    await interaction.followup.send(embed=result_embed)
+    
 @client.tree.command(name="set-announcement-channel", description="設定全域公告頻道")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(ch="公告頻道")
