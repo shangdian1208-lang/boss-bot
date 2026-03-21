@@ -1,9 +1,10 @@
 # bot.py
-import discord, asyncio, os, random, json, youtube_dl, openai
+import discord, asyncio, os, random, json, openai
 from discord.ext import commands, tasks
 from discord import app_commands
 from discord.utils import get
 from discord import FFmpegPCMAudio
+import yt_dlp as youtube_dl
 
 # ===== 讀取環境變數 =====
 TOKEN = os.getenv("TOKEN")
