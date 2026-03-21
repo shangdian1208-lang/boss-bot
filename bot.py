@@ -1,6 +1,7 @@
 import discord, os, json, random, asyncio, yt_dlp
 from discord.ext import commands, tasks
 from discord import app_commands
+import feedparser
 
 # -----------------------------
 # 環境變數
@@ -106,7 +107,8 @@ async def profile(interaction: discord.Interaction):
     exp = db.get("exp", {}).get(uid, 0)
     money = db.get("money", {}).get(uid, 100)
     await interaction.response.send_message(f"📊 {interaction.user.mention}\n經驗值: {exp}\n金幣: {money}", ephemeral=True)
-    # -----------------------------
+    
+# -----------------------------
 # 身分組領取按鈕
 # -----------------------------
 class RoleButton(discord.ui.View):
@@ -397,6 +399,47 @@ async def leaderboard(interaction: discord.Interaction, type: str):
     await interaction.response.send_message(embed=embed)
 
 # -----------------------------
+# 設置 YouTube 通知頻道（管理員可用）
+# -----------------------------
+@client.tree.command(name="set_yt_channel", description="設置 YouTube 發片通知頻道")
+@app_commands.describe(channel="要發送通知的頻道", yt_id="YouTube 頻道ID")
+async def set_yt_channel(interaction: discord.Interaction, channel: discord.TextChannel, yt_id: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ 需要管理員權限", ephemeral=True)
+        return
+    db = load_db()
+    if "youtube" not in db:
+        db["youtube"] = {}
+    db["youtube"][str(interaction.guild.id)] = {"channel_id": channel.id, "yt_id": yt_id, "last_video": None}
+    save_db(db)
+    await interaction.response.send_message(f"✅ 已設置 YouTube 發片通知頻道: {channel.mention}\n頻道ID: `{yt_id}`")
+
+# -----------------------------
+# 循環檢查 RSS 新影片
+# -----------------------------
+async def youtube_rss_loop():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        db = load_db()
+        if "youtube" in db:
+            for guild_id, info in db["youtube"].items():
+                ch = client.get_channel(info["channel_id"])
+                if not ch:
+                    continue
+                feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={info['yt_id']}")
+                if feed.entries:
+                    latest = feed.entries[0]
+                    if info.get("last_video") != latest.link:
+                        info["last_video"] = latest.link
+                        save_db(db)
+                        embed = discord.Embed(title="📢 新影片上線！", description=latest.title, color=discord.Color.red())
+                        embed.add_field(name="連結", value=latest.link, inline=False)
+                        await ch.send(embed=embed)
+        await asyncio.sleep(300)  # 每5分鐘檢查一次
+
+client.loop.create_task(youtube_rss_loop())
+
+# -----------------------------
 # /ping 指令
 # -----------------------------
 @client.tree.command(name="ping", description="測試延遲（管理員權限）")
@@ -427,6 +470,7 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(name="/play url", value="播放 YouTube 音樂", inline=False)
     embed.add_field(name="/set_log channel", value="設置日誌頻道", inline=False)
     embed.add_field(name="/ping", value="測試延遲（管理員）", inline=False)
+    embed.add_field(name="/set_yt_channel", value="設置 YouTube 發片通知頻道", inline=False)
     await interaction.response.send_message(embed=embed)
     
 # -----------------------------
