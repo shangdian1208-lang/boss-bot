@@ -11,7 +11,6 @@ from openai import OpenAI
 TOKEN = os.getenv("TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 client_ai = OpenAI(api_key=os.getenv("OPENAI_KEY"))
-openai.api_key = OPENAI_KEY
 
 # ===== 資料庫 =====
 DB_FILE = "db.json"
@@ -101,22 +100,42 @@ async def set_logs(interaction: discord.Interaction, ch: discord.TextChannel):
     await admin_set(interaction, "logs", ch)
 
 @client.tree.command(name="broadcast", description="全域公告")
-@app_commands.describe(msg="訊息內容")
+@app_commands.describe(msg="公告內容")
 async def broadcast(interaction: discord.Interaction, msg: str):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("❌ 只有擁有者可用", ephemeral=True)
+        await interaction.response.send_message("❌ 只有擁有者可以使用", ephemeral=True)
         return
+
     count = 0
+
     for guild in client.guilds:
-        ch_id = db["settings"].get("announce")
-        ch = client.get_channel(ch_id) if ch_id else get(guild.text_channels, permissions_synced=True)
-        if ch:
-            try:
+        try:
+            guild_settings = db["settings"].get(str(guild.id), {})
+            ch_id = guild_settings.get("announce")
+
+            if ch_id:
+                ch = client.get_channel(ch_id)
+            else:
+                # 沒設定就找第一個文字頻道
+                ch = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
+
+            if ch:
                 await ch.send(f"📢 全域公告\n{msg}")
                 count += 1
-            except:
-                continue
+
+        except Exception as e:
+            print(f"公告失敗: {guild.name}", e)
+
     await interaction.response.send_message(f"✅ 發送成功 {count} 個伺服器")
+@client.tree.command(name="set-announcement-channel", description="設定全域公告頻道")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(ch="公告頻道")
+async def set_announcement(interaction: discord.Interaction, ch: discord.TextChannel):
+    db["settings"][str(interaction.guild.id)] = db["settings"].get(str(interaction.guild.id), {})
+    db["settings"][str(interaction.guild.id)]["announce"] = ch.id
+    write_db(db)
+
+    await interaction.response.send_message(f"📢 公告頻道已設為 {ch.mention}")
 
 # ===== 經濟系統 =====
 @client.tree.command(name="daily", description="每日金幣")
