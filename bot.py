@@ -6,6 +6,42 @@ from discord.utils import get
 from discord import FFmpegPCMAudio
 import yt_dlp as youtube_dl
 from openai import OpenAI
+import requests
+
+HF_API = os.getenv("HF_API_KEY")
+HF_MODEL = "gpt-neo-2.7B"  # 你也可以換成其他模型
+
+async def ai_reply(message):
+    try:
+        payload = {
+            "inputs": message.content,
+            "options": {"use_cache": False, "wait_for_model": True}
+        }
+        headers = {"Authorization": f"Bearer {HF_API}"}
+
+        res = requests.post(
+            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+        data = res.json()
+
+        # Hugging Face 回傳有時候是 list
+        if isinstance(data, list):
+            text = data[0].get("generated_text", "")
+        else:
+            text = data.get("generated_text", "")
+
+        if not text:
+            text = "🤖 AI 無法生成回答"
+
+        await message.reply(text)
+
+    except Exception as e:
+        print("HF AI Error:", e)
+        await message.reply("⚠️ AI暫時不可用")
 
 # ===== 讀取環境變數 =====
 TOKEN = os.getenv("TOKEN")
@@ -238,7 +274,8 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    ai_ch = db["settings"].get("ai")
+    if db["settings"].get("ai") == msg.channel.id:
+    await ai_reply(msg)
 
     if ai_ch and message.channel.id == ai_ch:
         try:
