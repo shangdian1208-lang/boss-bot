@@ -183,8 +183,9 @@ async def gacha(interaction: discord.Interaction):
 # ===== AI聊天 =====
 @client.event
 async def on_message(message):
-    if message.author.bot: return
-    await client.process_commands(message)
+    if message.author.bot:
+        return
+
     ai_ch = db["settings"].get("ai")
     if ai_ch and message.channel.id == ai_ch:
         try:
@@ -192,10 +193,10 @@ async def on_message(message):
                 model="gpt-3.5-turbo",
                 messages=[{"role":"user","content":message.content}]
             )
-            reply = response.choices[0].message.content
-            await message.reply(reply)
+            await message.reply(response.choices[0].message.content)
         except Exception as e:
             print("AI Error:", e)
+
 
 # ===== 音樂系統 =====
 ytdl_opts = {'format':'bestaudio'}
