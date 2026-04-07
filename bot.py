@@ -29,7 +29,7 @@ async def on_ready():
 # AI
 HF_API_KEY = os.getenv("HF_API_KEY")
 
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
 
 headers = {
     "Authorization": f"Bearer {HF_API_KEY}"
