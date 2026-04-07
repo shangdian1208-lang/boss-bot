@@ -160,11 +160,40 @@ async def on_message(message):
         return
 
     if bot.user in message.mentions:
-        reply = await query_hf(f"使用繁體中文回答：{message.content}")
-        await message.channel.send(reply[:2000])
+        try:
+            # ✨ 顯示輸入中（很重要，體驗差很多）
+            async with message.channel.typing():
+
+                # ✅ 移除 mention
+                content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+                if not content:
+                    await message.reply("你要問什麼？")
+                    return
+
+                # 🧠 AI Prompt（強化）
+                prompt = f"""
+你是一個Discord伺服器的智能助理，請用繁體中文自然回答。
+語氣可以輕鬆一點，但不要太隨便。
+
+使用者說：
+{content}
+"""
+
+                reply = await query_hf(prompt)
+
+                # ✂️ 避免過長
+                reply = reply.strip()
+                if len(reply) > 2000:
+                    reply = reply[:1990] + "..."
+
+                await message.reply(reply)
+
+        except Exception as e:
+            await message.reply("⚠️ AI暫時壞掉了，稍後再試")
+            print("AI錯誤:", e)
 
     await bot.process_commands(message)
-
 # =========================
 
 bot.run(TOKEN)
