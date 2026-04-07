@@ -101,6 +101,59 @@ async def ai(interaction: discord.Interaction, 問題: str):
         reply = reply[:1990] + "..."
 
     await interaction.followup.send(reply)
+
+# /help
+@tree.command(name="help", description="顯示所有指令")
+async def help_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📖 指令幫助",
+        description="這裡是所有可用指令",
+        color=discord.Color.blurple()
+    )
+
+    # 🔹 斜線指令
+    embed.add_field(
+        name="🔹 斜線指令 (/)",
+        value=(
+            "`/身份組按鈕` - 建立身分組按鈕\n"
+            "`/設置日誌頻道` - 設置日誌頻道\n"
+            "`/設置工單功能` - 設置工單分類與日誌\n"
+            "`/設置工單頻道` - 發送工單按鈕\n"
+            "`/人數頻道創建` - 建立人數頻道\n"
+            "`/移除人數頻道` - 移除人數頻道\n"
+            "`/ai問答` - 問 AI 問題"
+        ),
+        inline=False
+    )
+
+    # 🔸 管理指令
+    embed.add_field(
+        name="🔸 管理指令 (!)",
+        value=(
+            "`!ping` - 測試延遲\n"
+            "`!ban @用戶 [原因]` - 封鎖用戶\n"
+            "`!kick @用戶 [原因]` - 踢出用戶\n"
+            "`!unban [ID]` - 解封\n"
+            "`!to @用戶 [秒數]` - 禁言\n"
+            "`!unto @用戶` - 解除禁言"
+        ),
+        inline=False
+    )
+
+    # 🤖 AI
+    embed.add_field(
+        name="🤖 AI 功能",
+        value=(
+            "📌 `@機器人 訊息` → 自動回覆\n"
+            "📌 `/ai問答` → 指令提問"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="💡 提示：可以直接 @我 來聊天！")
+    embed.set_thumbnail(url=interaction.client.user.avatar.url if interaction.client.user.avatar else None)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 # =========================
 # 🔸 Prefix Commands
 # =========================
