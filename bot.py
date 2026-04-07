@@ -26,6 +26,31 @@ async def setup_hook():
 async def on_ready():
     print(f"✅ 已登入 {bot.user}")
 
+# AI
+HF_API_KEY = os.getenv("HF_API_KEY")
+
+API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+
+headers = {
+    "Authorization": f"Bearer {HF_API_KEY}"
+}
+
+async def query_hf(prompt):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, headers=headers, json={
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 200,
+                "temperature": 0.7
+            }
+        }) as response:
+            result = await response.json()
+
+            if isinstance(result, list):
+                return result[0]["generated_text"]
+            else:
+                return "❌ AI 發生錯誤"
+
 # =========================
 # 🔹 Slash Commands
 # =========================
@@ -65,10 +90,17 @@ async def count_remove(interaction: discord.Interaction):
         await ch.delete()
     await interaction.response.send_message("✅ 已移除")
 
-@tree.command(name="ai問答")
+@tree.command(name="ai問答", description="AI聊天")
 async def ai(interaction: discord.Interaction, 問題: str):
-    await interaction.response.send_message(f"🤖 AI：{問題}")
+    await interaction.response.defer()
 
+    reply = await query_hf(f"使用繁體中文回答：{問題}")
+
+    # 避免超過2000字
+    if len(reply) > 2000:
+        reply = reply[:1990] + "..."
+
+    await interaction.followup.send(reply)
 # =========================
 # 🔸 Prefix Commands
 # =========================
@@ -120,6 +152,18 @@ async def update_count(guild):
     ch = guild.get_channel(cid)
     if ch:
         await ch.edit(name=f"👥人數: {guild.member_count}")
+
+# AI
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if bot.user in message.mentions:
+        reply = await query_hf(f"使用繁體中文回答：{message.content}")
+        await message.channel.send(reply[:2000])
+
+    await bot.process_commands(message)
 
 # =========================
 
