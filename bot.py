@@ -29,7 +29,7 @@ async def on_ready():
 # AI
 HF_API_KEY = os.getenv("HF_API_KEY")
 
-API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
 
 headers = {
     "Authorization": f"Bearer {HF_API_KEY}"
