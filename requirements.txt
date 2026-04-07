@@ -1,6 +1,2 @@
 discord.py>=2.3.2,<2.8.0
-PyNaCl
-yt-dlp
-requests
-openai
-feedparser
+python-dotenv
