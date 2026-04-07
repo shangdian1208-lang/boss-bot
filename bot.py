@@ -6,7 +6,7 @@ import os
 from database import *
 from views import *
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("PREFIX", "!")
 
 intents = discord.Intents.all()
