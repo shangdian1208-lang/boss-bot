@@ -55,34 +55,52 @@ async def query_hf(prompt):
 # 🔹 Slash Commands
 # =========================
 
-@tree.command(name="設置日誌頻道")
+@tree.command(
+    name="設置日誌頻道",
+    description="設定機器人紀錄伺服器事件的頻道"
+)
 async def set_log(interaction: discord.Interaction, channel: discord.TextChannel):
     await set_setting(interaction.guild.id, "log_channel", channel.id)
     await interaction.response.send_message("✅ 設置完成")
 
-@tree.command(name="身份組按鈕")
+@tree.command(
+    name="身份組按鈕",
+    description="建立一個讓成員領取身分組的按鈕面板"
+)
 async def role_panel(interaction: discord.Interaction):
     await interaction.channel.send("領取身分組", view=RoleView())
     await interaction.response.send_message("✅ 已發送", ephemeral=True)
 
-@tree.command(name="設置工單功能")
+@tree.command(
+    name="設置工單功能",
+    description="設定工單系統的分類與紀錄頻道"
+)
 async def ticket_setup(interaction: discord.Interaction, category: discord.CategoryChannel, log: discord.TextChannel):
     await set_setting(interaction.guild.id, "ticket_category", category.id)
     await set_setting(interaction.guild.id, "ticket_log", log.id)
     await interaction.response.send_message("✅ 工單設定完成")
 
-@tree.command(name="設置工單頻道")
+@tree.command(
+    name="設置工單頻道",
+    description="在此頻道發送工單開啟按鈕"
+)
 async def ticket_panel(interaction: discord.Interaction):
     await interaction.channel.send("🎫 點擊開啟工單", view=TicketView())
     await interaction.response.send_message("✅ 已發送", ephemeral=True)
 
-@tree.command(name="人數頻道創建")
+@tree.command(
+    name="人數頻道創建",
+    description="建立顯示伺服器人數的語音頻道"
+)
 async def count_create(interaction: discord.Interaction):
     channel = await interaction.guild.create_voice_channel("👥人數: 0")
     await set_setting(interaction.guild.id, "count_channel", channel.id)
     await interaction.response.send_message("✅ 已建立")
 
-@tree.command(name="移除人數頻道")
+@tree.command(
+    name="移除人數頻道",
+    description="刪除目前的人數統計頻道"
+)
 async def count_remove(interaction: discord.Interaction):
     cid = await get_setting(interaction.guild.id, "count_channel")
     ch = interaction.guild.get_channel(cid)
@@ -90,7 +108,10 @@ async def count_remove(interaction: discord.Interaction):
         await ch.delete()
     await interaction.response.send_message("✅ 已移除")
 
-@tree.command(name="ai問答", description="AI聊天")
+@tree.command(
+    name="ai問答",
+    description="向 AI 提問問題並獲得回答"
+)
 async def ai(interaction: discord.Interaction, 問題: str):
     await interaction.response.defer()
 
