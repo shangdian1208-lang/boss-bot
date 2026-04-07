@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+import aiohttp
 import os
 from database import *
 from views import *
