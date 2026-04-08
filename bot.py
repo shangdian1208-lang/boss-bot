@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-import google.generativeai as genai
+from google import genai
 import time
 import os
 from database import *
@@ -31,18 +31,21 @@ async def on_ready():
     print(f"✅ 已登入 {bot.user}")
 
 # AI
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 async def query_ai(prompt):
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
         return response.text
+
     except Exception as e:
         print("Gemini錯誤:", e)
         return "❌ AI 暫時無法回應"
-
 # =========================
 # 🔹 Slash Commands
 # =========================
