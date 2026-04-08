@@ -2,6 +2,8 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
+import cohere
+import time
 import os
 from database import *
 from views import *
@@ -12,6 +14,8 @@ PREFIX = os.getenv("PREFIX", "!")
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 tree = bot.tree
+
+
 
 # ===== 啟動 =====
 @bot.event
@@ -27,29 +31,30 @@ async def on_ready():
     print(f"✅ 已登入 {bot.user}")
 
 # AI
-HF_API_KEY = os.getenv("HF_API_KEY")
+co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
+async def query_ai(prompt):
+    try:
+        response = co.chat(
+            model="command-r",  # 推薦模型（免費可用）
+            message=prompt,
+            temperature=0.7
+        )
 
-headers = {
-    "Authorization": f"Bearer {HF_API_KEY}"
-}
+        return response.text
 
-async def query_hf(prompt):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(API_URL, headers=headers, json={
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": 200,
-                "temperature": 0.7
-            }
-        }) as response:
-            result = await response.json()
+    except Exception as e:
+        print("Cohere錯誤:", e)
+        return "❌ AI 暫時無法回應"
 
-            if isinstance(result, list):
-                return result[0]["generated_text"]
-            else:
-                return "❌ AI 發生錯誤"
+# ???
+cooldowns = {}
+
+if message.author.id in cooldowns:
+    if time.time() - cooldowns[message.author.id] < 5:
+        return
+
+cooldowns[message.author.id] = time.time()
 
 # =========================
 # 🔹 Slash Commands
@@ -108,16 +113,13 @@ async def count_remove(interaction: discord.Interaction):
         await ch.delete()
     await interaction.response.send_message("✅ 已移除")
 
-@tree.command(
-    name="ai問答",
-    description="向 AI 提問問題並獲得回答"
-)
+@tree.command(name="ai問答", description="向 AI 提問")
+@app_commands.describe(問題="你想問 AI 的內容")
 async def ai(interaction: discord.Interaction, 問題: str):
     await interaction.response.defer()
 
-    reply = await query_hf(f"使用繁體中文回答：{問題}")
+    reply = await query_ai(f"請用繁體中文回答：{問題}")
 
-    # 避免超過2000字
     if len(reply) > 2000:
         reply = reply[:1990] + "..."
 
@@ -235,37 +237,19 @@ async def on_message(message):
 
     if bot.user in message.mentions:
         try:
-            # ✨ 顯示輸入中（很重要，體驗差很多）
-            async with message.channel.typing():
+            content = message.content.replace(f"<@{bot.user.id}>", "").strip()
 
-                # ✅ 移除 mention
-                content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+            if not content:
+                await message.reply("你要問什麼？")
+                return
 
-                if not content:
-                    await message.reply("你要問什麼？")
-                    return
+            reply = await query_ai(f"請用繁體中文自然回答：{content}")
 
-                # 🧠 AI Prompt（強化）
-                prompt = f"""
-你是一個Discord伺服器的智能助理，請用繁體中文自然回答。
-語氣可以輕鬆一點，但不要太隨便。
-
-使用者說：
-{content}
-"""
-
-                reply = await query_hf(prompt)
-
-                # ✂️ 避免過長
-                reply = reply.strip()
-                if len(reply) > 2000:
-                    reply = reply[:1990] + "..."
-
-                await message.reply(reply)
+            await message.reply(reply[:2000])
 
         except Exception as e:
-            await message.reply("⚠️ AI暫時壞掉了，稍後再試")
-            print("AI錯誤:", e)
+            print(e)
+            await message.reply("❌ AI 出錯了")
 
     await bot.process_commands(message)
 # =========================
