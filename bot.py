@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-import cohere
+import google.generativeai as genai
 import time
 import os
 from database import *
@@ -31,22 +31,17 @@ async def on_ready():
     print(f"✅ 已登入 {bot.user}")
 
 # AI
-co = cohere.Client(os.getenv("COHERE_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 async def query_ai(prompt):
     try:
-        response = co.chat(
-            model="command",  # 推薦模型（免費可用）
-            message=prompt,
-            temperature=0.7
-        )
-
+        response = model.generate_content(prompt)
         return response.text
-
     except Exception as e:
-        print("Cohere錯誤:", e)
+        print("Gemini錯誤:", e)
         return "❌ AI 暫時無法回應"
-
 
 # =========================
 # 🔹 Slash Commands
