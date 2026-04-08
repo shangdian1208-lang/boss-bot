@@ -3,3 +3,4 @@ aiosqlite
 python-dotenv
 aiohttp
 cohere
+google-generativeai
