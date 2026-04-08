@@ -47,14 +47,6 @@ async def query_ai(prompt):
         print("Cohere錯誤:", e)
         return "❌ AI 暫時無法回應"
 
-# ???
-cooldowns = {}
-
-if message.author.id in cooldowns:
-    if time.time() - cooldowns[message.author.id] < 5:
-        return
-
-cooldowns[message.author.id] = time.time()
 
 # =========================
 # 🔹 Slash Commands
