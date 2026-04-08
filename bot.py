@@ -36,7 +36,7 @@ co = cohere.Client(os.getenv("COHERE_API_KEY"))
 async def query_ai(prompt):
     try:
         response = co.chat(
-            model="command-r-plus",  # 推薦模型（免費可用）
+            model="command",  # 推薦模型（免費可用）
             message=prompt,
             temperature=0.7
         )
