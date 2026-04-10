@@ -5,6 +5,7 @@ import aiohttp
 from google import genai
 import time
 import os
+import json
 from database import *
 from views import *
 
@@ -175,6 +176,7 @@ async def ping(ctx):
 
 @bot.command()
 async def kick(ctx, member: discord.Member, *, reason="無"):
+    await log_kick(ctx.guild, ctx.author, member, reason)
     await member.kick(reason=reason)
     await ctx.send("已踢出")
 
@@ -240,6 +242,179 @@ async def on_message(message):
             await message.reply("❌ AI 出錯了")
 
     await bot.process_commands(message)
+
+# 🔍 取得 log 頻道
+log_channels = {}  # guild_id: channel_id
+
+def get_log_channel(guild):
+    channel_id = log_channels.get(guild.id)
+    if channel_id:
+        return guild.get_channel(channel_id)
+    return None
+
+
+# =========================
+# 🗑️ 訊息刪除
+# =========================
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+
+    log_channel = get_log_channel(message.guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="🗑️ 訊息被刪除", color=discord.Color.red())
+    embed.add_field(name="使用者", value=message.author.mention)
+    embed.add_field(name="頻道", value=message.channel.mention)
+    embed.add_field(name="內容", value=message.content or "無內容", inline=False)
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# ✏️ 訊息編輯
+# =========================
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot:
+        return
+    if before.content == after.content:
+        return
+
+    log_channel = get_log_channel(before.guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="✏️ 訊息被編輯", color=discord.Color.orange())
+    embed.add_field(name="使用者", value=before.author.mention)
+    embed.add_field(name="修改前", value=before.content or "無", inline=False)
+    embed.add_field(name="修改後", value=after.content or "無", inline=False)
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 👤 成員加入
+# =========================
+@bot.event
+async def on_member_join(member):
+    log_channel = get_log_channel(member.guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="👤 成員加入", color=discord.Color.green())
+    embed.add_field(name="使用者", value=member.mention)
+    embed.add_field(name="ID", value=member.id)
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 🚪 成員離開
+# =========================
+@bot.event
+async def on_member_remove(member):
+    log_channel = get_log_channel(member.guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="🚪 成員離開", color=discord.Color.dark_gray())
+    embed.add_field(name="使用者", value=member.mention)
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 🔨 Ban
+# =========================
+@bot.event
+async def on_member_ban(guild, user):
+    log_channel = get_log_channel(guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="🔨 成員被封鎖", color=discord.Color.red())
+    embed.add_field(name="用戶", value=f"{user} ({user.id})")
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 👢 Kick（需要在你的 !kick 指令內加）
+# =========================
+async def log_kick(guild, moderator, target, reason):
+    log_channel = get_log_channel(guild)
+    if not log_channel:
+        return
+
+    embed = discord.Embed(title="👢 成員被踢出", color=discord.Color.orange())
+    embed.add_field(name="管理員", value=moderator.mention)
+    embed.add_field(name="目標", value=target.mention)
+    embed.add_field(name="原因", value=reason or "無")
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 🏷️ 身分組變動
+# =========================
+@bot.event
+async def on_member_update(before, after):
+    log_channel = get_log_channel(before.guild)
+    if not log_channel:
+        return
+
+    before_roles = set(before.roles)
+    after_roles = set(after.roles)
+
+    added = after_roles - before_roles
+    removed = before_roles - after_roles
+
+    if not added and not removed:
+        return
+
+    embed = discord.Embed(title="🏷️ 身分組變動", color=discord.Color.blue())
+    embed.add_field(name="使用者", value=after.mention)
+
+    if added:
+        embed.add_field(name="新增", value=", ".join(r.name for r in added), inline=False)
+    if removed:
+        embed.add_field(name="移除", value=", ".join(r.name for r in removed), inline=False)
+
+    await log_channel.send(embed=embed)
+
+
+# =========================
+# 🎤 語音狀態
+# =========================
+@bot.event
+async def on_voice_state_update(member, before, after):
+    log_channel = get_log_channel(member.guild)
+    if not log_channel:
+        return
+
+    if before.channel == after.channel:
+        return
+
+    embed = discord.Embed(color=discord.Color.purple())
+    embed.add_field(name="使用者", value=member.mention)
+
+    if before.channel is None:
+        embed.title = "🎤 加入語音"
+        embed.add_field(name="頻道", value=after.channel.name)
+
+    elif after.channel is None:
+        embed.title = "🔇 離開語音"
+        embed.add_field(name="頻道", value=before.channel.name)
+
+    else:
+        embed.title = "🔁 切換語音"
+        embed.add_field(name="從", value=before.channel.name)
+        embed.add_field(name="到", value=after.channel.name)
+
+    await log_channel.send(embed=embed)
 # =========================
 
 bot.run(TOKEN)
