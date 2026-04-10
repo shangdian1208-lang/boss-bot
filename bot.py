@@ -33,8 +33,6 @@ async def on_ready():
 # AI
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-1.5-flash")
-
 async def query_ai(prompt):
     try:
         response = client.models.generate_content(
