@@ -19,4 +19,4 @@ async def load():
 import asyncio
 asyncio.run(load())
 
-bot.run(os.getenv("TOKEN"))
+bot.run(os.getenv("DISCORD_TOKEN"))
