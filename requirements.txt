@@ -1,6 +1,4 @@
 discord.py
-aiosqlite
-python-dotenv
-aiohttp
-cohere
-google-genai
+yt-dlp
+PyNaCl
+ffmpeg
