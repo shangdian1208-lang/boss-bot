@@ -62,26 +62,48 @@ class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="play", description="播放 YouTube 音樂")
-    async def play(self, interaction: discord.Interaction, url: str):
+# 🔍 yt-dlp 搜尋設定
+ytdl = yt_dlp.YoutubeDL({
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True
+})
+
+
+class Music(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    # ================== 🎵 PLAY（搜尋版） ==================
+    @app_commands.command(name="play", description="播放音樂（可輸入名稱或連結）")
+    async def play(self, interaction: discord.Interaction, query: str):
 
         await interaction.response.defer()
 
         vc = interaction.guild.voice_client
 
-        # 自動加入語音
+        # 🔊 自動加入語音
         if not vc:
             if interaction.user.voice:
                 vc = await interaction.user.voice.channel.connect()
             else:
                 return await interaction.followup.send("❌ 你不在語音頻道")
 
-        # 解析音樂
-        info = ytdl.extract_info(url, download=False)
+        # ================== 🔍 判斷是不是連結 ==================
+        if not query.startswith("http"):
+            query = f"ytsearch1:{query}"  # ⭐ 搜尋模式
+
+        info = ytdl.extract_info(query, download=False)
+
+        # 🎯 搜尋結果處理
+        if "entries" in info:
+            info = info["entries"][0]
+
         audio_url = info["url"]
         title = info.get("title", "Unknown")
+        webpage_url = info.get("webpage_url")
 
-        # 停止舊音樂
+        # ⛔ 停止舊音樂
         if vc.is_playing():
             vc.stop()
 
@@ -93,12 +115,12 @@ class Music(commands.Cog):
             description=f"**{title}**",
             color=0x5865F2
         )
-        embed.add_field(name="🔗 連結", value=url, inline=False)
+
+        if webpage_url:
+            embed.add_field(name="🔗 YouTube", value=webpage_url, inline=False)
+
         embed.set_footer(text=f"請求者：{interaction.user}")
 
-        await interaction.followup.send(
-            embed=embed,
-            view=MusicControlView(self.bot)  # 🎛️ 控制面板
-        )
+        await interaction.followup.send(embed=embed)
 
 
