@@ -13,7 +13,7 @@ ytdl = yt_dlp.YoutubeDL({
     'quiet': True,
     'extractor_args': {
         'youtube': {
-            'skip': ['dash', 'hls']
+            'skip': ['dash', 'hls'],
         }
     }
 })
