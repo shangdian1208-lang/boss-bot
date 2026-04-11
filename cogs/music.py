@@ -61,6 +61,7 @@ class MusicControlView(discord.ui.View):
             await interaction.response.send_message("❌ 不在語音", ephemeral=True)
 
 
+
 # ================== 🎵 Music Cog ==================
 class Music(commands.Cog):
     def __init__(self, bot):
@@ -68,11 +69,6 @@ class Music(commands.Cog):
 
     @app_commands.command(name="play", description="播放音樂（支援搜尋）")
     async def play(self, interaction: discord.Interaction, query: str):
-        
-        info = await asyncio.wait_for(
-        asyncio.to_thread(ytdl.extract_info, query, False),
-        timeout=10
-    )
 
         await interaction.response.defer()
 
@@ -85,12 +81,20 @@ class Music(commands.Cog):
             else:
                 return await interaction.followup.send("❌ 你不在語音頻道")
 
-        # 🔍 搜尋模式
+        # ================== 🔍 搜尋 / 連結處理 ==================
         if not query.startswith("http"):
             query = f"ytsearch1:{query}"
 
-        info = ytdl.extract_info(query, download=False)
+        # ⚡ yt-dlp（避免卡死）
+        try:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(ytdl.extract_info, query, False),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            return await interaction.followup.send("❌ 搜尋超時，請換關鍵字")
 
+        # 🎯 搜尋結果處理
         if "entries" in info:
             info = info["entries"][0]
 
@@ -98,11 +102,13 @@ class Music(commands.Cog):
         title = info.get("title", "Unknown")
         webpage_url = info.get("webpage_url")
 
+        # ⛔ 停止舊音樂
         if vc.is_playing():
             vc.stop()
 
         vc.play(discord.FFmpegPCMAudio(audio_url, **ffmpeg_options))
 
+        # 🎨 Embed
         embed = discord.Embed(
             title="🎵 正在播放",
             description=title,
@@ -116,7 +122,6 @@ class Music(commands.Cog):
             embed=embed,
             view=MusicControlView()
         )
-
 
 
 # ================== setup ==================
