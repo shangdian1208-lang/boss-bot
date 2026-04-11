@@ -68,6 +68,11 @@ class Music(commands.Cog):
 
     @app_commands.command(name="play", description="播放音樂（支援搜尋）")
     async def play(self, interaction: discord.Interaction, query: str):
+        
+        info = await asyncio.wait_for(
+        asyncio.to_thread(ytdl.extract_info, query, False),
+        timeout=10
+    )
 
         await interaction.response.defer()
 
@@ -112,10 +117,7 @@ class Music(commands.Cog):
             view=MusicControlView()
         )
 
-info = await asyncio.wait_for(
-    asyncio.to_thread(ytdl.extract_info, query, False),
-    timeout=10
-)
+
 
 # ================== setup ==================
 async def setup(bot):
