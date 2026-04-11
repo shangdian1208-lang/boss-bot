@@ -2,13 +2,20 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import yt_dlp
+import asyncio
+
 
 ffmpeg_options = {'options': '-vn'}
 
 ytdl = yt_dlp.YoutubeDL({
     'format': 'bestaudio/best',
     'noplaylist': True,
-    'quiet': True
+    'quiet': True,
+    'extractor_args': {
+        'youtube': {
+            'skip': ['dash', 'hls']
+        }
+    }
 })
 
 
@@ -105,6 +112,10 @@ class Music(commands.Cog):
             view=MusicControlView()
         )
 
+info = await asyncio.wait_for(
+    asyncio.to_thread(ytdl.extract_info, query, False),
+    timeout=10
+)
 
 # ================== setup ==================
 async def setup(bot):
