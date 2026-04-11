@@ -15,8 +15,7 @@ async def load():
     for file in os.listdir("./cogs"):
         if file.endswith(".py"):
             await bot.load_extension(f"cogs.{file[:-3]}")
-            await bot.reload_extension("cogs.music")
-
+            
 import asyncio
 asyncio.run(load())
 
